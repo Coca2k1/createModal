@@ -52,6 +52,49 @@ let currentModal = null;
 
 Popzy.elements = [];
 
+function Popzy(options = {}) {
+    if (!options.content && !options.templateId) {
+        console.error("You must provide one of 'content' or 'templateId'");
+        return;
+    }
+
+    if (options.content && options.templateId) {
+        options.templateId = null;
+        console.warn(
+            "Both 'content' and 'templateId' are specified. 'content' will take precedence, and 'templateId' will be ignored."
+        );
+    }
+
+    this.opt = Object.assign(
+        {
+            closeMethods: ["button", "overlay", "Escape"],
+            destroyOnClose: true,
+            enableScrollLock: true,
+            scrollLockTarget: () => document.body,
+            cssClass: [],
+            footer: false,
+        },
+        options
+    );
+
+    if (options.templateId) {
+        this.template = $(`#${this.opt.templateId}`);
+
+        if (!this.template) {
+            console.error(`#${this.opt.templateId} doesn't exist!`);
+            return;
+        }
+    }
+
+    const { closeMethods } = this.opt;
+    this._allowBackdropClose = closeMethods.includes("overlay");
+    this._allowButtonClose = closeMethods.includes("button");
+    this._allowEscapeClose = closeMethods.includes("Escape");
+
+    this._footerButton = [];
+    this._handleEscapeKey = this._handleEscapeKey.bind(this);
+}
+
 Popzy.prototype._getScrollBarWidth = function () {
     if (this._scrollBarWidth) return this._scrollBarWidth;
 
@@ -71,9 +114,25 @@ Popzy.prototype._getScrollBarWidth = function () {
     return this._scrollBarWidth;
 };
 
-Popzy.prototype._build = function () {
-    const content = this.template.content.cloneNode(true);
+Popzy.prototype._hasScrollBar = function (target) {
+    if ([document.body, document.documentElement].includes(target)) {
+        return (
+            document.body.scrollHeight > document.body.clientHeight ||
+            document.documentElement.scrollHeight >
+                document.documentElement.clientHeight
+        );
+    }
+    return target.scrollHeight > target.clientHeight;
+};
 
+Popzy.prototype._build = function () {
+    const contentNode = this.opt.content
+        ? document.createElement("div")
+        : this.template.content.cloneNode(true);
+
+    if (this.opt.content) {
+        contentNode.innerHTML = this.opt.content;
+    }
     // create modal elements
 
     this._backdrop = document.createElement("div");
@@ -82,12 +141,12 @@ Popzy.prototype._build = function () {
     const container = document.createElement("div");
     container.className = "popzy__container";
 
-    const modalContent = document.createElement("div");
-    modalContent.className = "popzy__content";
+    this._modalContent = document.createElement("div");
+    this._modalContent.className = "popzy__content";
 
     // Append content and element
-    modalContent.appendChild(content);
-    container.append(modalContent);
+    this._modalContent.appendChild(contentNode);
+    container.append(this._modalContent);
 
     if (!this.opt.footer) {
         container.style.paddingBottom = "40px";
@@ -108,15 +167,10 @@ Popzy.prototype._build = function () {
     document.body.append(this._backdrop);
 
     if (this._allowButtonClose) {
-        // const closeBtn = document.createElement("button");
-        // closeBtn.className = "popzy__close";
-        // closeBtn.innerHTML = "&times";
         const closeBtn = this._createButton("&times", "popzy__close", () =>
             this.close()
         );
         container.append(closeBtn);
-
-        // closeBtn.onclick = () => this.close();
     }
 
     // Add more cssClass on container
@@ -198,8 +252,19 @@ Popzy.prototype.open = function () {
     }
 
     // hidden scroll and handle problem about scroll when modal appear/disappear
-    document.body.style.paddingRight = this._getScrollBarWidth() + "px";
-    document.body.classList.add("popzy--no-scroll");
+    if (this.opt.enableScrollLock) {
+        const target = this.opt.scrollLockTarget();
+
+        const paddingRightTarget = parseInt(
+            getComputedStyle(target).paddingRight
+        );
+
+        if (this._hasScrollBar(target)) {
+            target.style.paddingRight =
+                paddingRightTarget + this._getScrollBarWidth() + "px";
+            target.classList.add("popzy--no-scroll");
+        }
+    }
 
     // onOpen()
     this._onTransitionEnd(this.opt.onOpen);
@@ -233,9 +298,10 @@ Popzy.prototype.close = function (destroy = this.opt.destroyOnClose) {
             document.removeEventListener("keydown", this._handleEscapeKey);
         }
 
-        if (!Popzy.elements.length) {
-            document.body.classList.remove("popzy--no-scroll");
-            document.body.style.paddingRight = "";
+        if (!Popzy.elements.length && this.opt.enableScrollLock) {
+            const target = this.opt.scrollLockTarget();
+            target.classList.remove("popzy--no-scroll");
+            target.style.paddingRight = "";
         }
     });
 };
@@ -244,37 +310,18 @@ this.destroy = function () {
     this.close(true);
 };
 
-function Popzy(options = {}) {
-    this.opt = Object.assign(
-        {
-            closeMethods: ["button", "overlay", "Escape"],
-            destroyOnClose: true,
-            cssClass: [],
-            footer: false,
-        },
-        options
-    );
-
-    this.template = $(`#${this.opt.templateId}`);
-
-    if (!this.template) {
-        console.error(`#${this.opt.templateId} doesn't exist!`);
-        return;
+Popzy.prototype.setContent = function (content) {
+    this.content = content;
+    if (this._modalContent) {
+        this._modalContent.innerHTML = content;
     }
-
-    const { closeMethods } = this.opt;
-    this._allowBackdropClose = closeMethods.includes("overlay");
-    this._allowButtonClose = closeMethods.includes("button");
-    this._allowEscapeClose = closeMethods.includes("Escape");
-
-    this._footerButton = [];
-    this._handleEscapeKey = this._handleEscapeKey.bind(this);
-}
+};
 
 const modal1 = new Popzy({
     templateId: "modal-1",
     closeMethods: ["Escape", "overlay"],
     cssClass: ["class1", "class2", "class3"],
+
     footer: true,
     // setFooterContent: "<p>Footer content1</p>",
     onOpen: () => {
@@ -283,6 +330,8 @@ const modal1 = new Popzy({
     onClose: () => {
         console.log("Modal1 closed!");
     },
+    content:
+        "<p>Hello everyone, my name is Boy. And nice to see you again!</p>",
 });
 
 const modal2 = new Popzy({
@@ -300,7 +349,8 @@ const modal2 = new Popzy({
 const modal3 = new Popzy({
     templateId: "modal-3",
     cssClass: ["hello", "hahaha", "leuleu"],
-    // destroyOnClose: false,
+    destroyOnClose: false,
+
     onOpen: () => {
         console.log("Modal3 opened!");
     },
@@ -310,17 +360,10 @@ const modal3 = new Popzy({
     destroyOnClose: false,
 });
 
-// $("#open-modal1").onclick = function () {
-//     Popzy.open("<p class='font-bold text-red-500'>Modal content 1....</p>");
-// };
-
-// $("#open-modal2").onclick = function () {
-//     Popzy.open("<p class='font-bold text-yellow-600'>Modal content 2....</p>");
-// };
-
-// $("#open-modal3").onclick = function () {
-//     Popzy.open("<p class='font-bold text-green-500'>Modal content 3....</p>");
-// };
+const modal4 = new Popzy({
+    content: "<h1>This is Modal-4</h1>",
+    footer: true,
+});
 
 // Click button to open Modals
 $("#open-modal1").onclick = function () {
@@ -375,3 +418,7 @@ modal1.addFooterButton("Cancel", "popzy__btn popzy__btn--primary", () => {
         modal1.close(true);
     }
 });
+
+$("#open-modal4").onclick = () => {
+    modal4.open();
+};
